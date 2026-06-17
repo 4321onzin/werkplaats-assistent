@@ -108,7 +108,16 @@ function escapeHtml(value) {
 }
 
 function renderList(items) {
-  return (items || []).map((item) => "<li>" + escapeHtml(item) + "</li>").join("");
+  return (items || [])
+    .map((item) => {
+      if (typeof item === "string") return "<li>" + escapeHtml(item) + "</li>";
+      if (item?.step || item?.expectedResult) {
+        const expected = item.expectedResult ? " Verwacht: " + item.expectedResult : "";
+        return "<li>" + escapeHtml((item.step || "") + expected) + "</li>";
+      }
+      return "<li>" + escapeHtml(JSON.stringify(item)) + "</li>";
+    })
+    .join("");
 }
 
 function renderAdvice(advice) {

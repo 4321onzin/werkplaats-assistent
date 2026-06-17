@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "127.0.0.1";
 const model = process.env.WORKSHOP_AI_MODEL || process.env.OPENAI_MODEL || process.env.OPENROUTER_MODEL || "openai/gpt-5.5";
 const accessCode = process.env.WORKSHOP_ACCESS_CODE || "";
 const allowedOrigins = (process.env.WORKSHOP_ALLOWED_ORIGINS || "https://4321onzin.github.io,http://localhost:4173,http://127.0.0.1:4173")
@@ -12,6 +13,7 @@ const allowedOrigins = (process.env.WORKSHOP_ALLOWED_ORIGINS || "https://4321onz
   .map((origin) => origin.trim())
   .filter(Boolean);
 const maxBodyBytes = 8 * 1024 * 1024;
+const aiTimeoutMs = Number(process.env.WORKSHOP_AI_TIMEOUT_MS || 45000);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -93,6 +95,49 @@ function parseModelJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
+function normalizeList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      if (typeof item === "string") return item;
+      if (item?.step || item?.expectedResult) {
+        return [item.step, item.expectedResult ? "Verwacht: " + item.expectedResult : ""].filter(Boolean).join(" ");
+      }
+      return JSON.stringify(item);
+    });
+  }
+  if (typeof value === "string" && value.trim()) return [value];
+  return [];
+}
+
+function normalizeAdvice(advice) {
+  return {
+    ...advice,
+    summary: String(advice.summary || "Geen samenvatting ontvangen."),
+    likelyCauses: normalizeList(advice.likelyCauses),
+    checks: normalizeList(advice.checks),
+    partsAndTools: normalizeList(advice.partsAndTools),
+    customerText: String(advice.customerText || ""),
+    warnings: normalizeList(advice.warnings),
+  };
+}
+
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), aiTimeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error("AI-provider reageerde niet binnen de timeout.");
+      timeoutError.status = 504;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function mockAdvice(input) {
   const fault = input.faultCode || "geen foutcode";
   return {
@@ -149,7 +194,7 @@ async function createAdvice(input) {
       content.push({ type: "input_image", image_url: photo.dataUrl });
     }
   }
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       authorization: "Bearer " + process.env.OPENAI_API_KEY,
@@ -174,7 +219,7 @@ async function createAdvice(input) {
       .map((item) => item.text)
       .join("\n");
   if (!outputText) throw new Error("AI gaf geen tekst terug.");
-  return { ai: true, model, ...parseModelJson(outputText) };
+  return { ai: true, model, ...normalizeAdvice(parseModelJson(outputText)) };
 }
 
 async function createOpenRouterAdvice(input) {
@@ -199,7 +244,7 @@ async function createOpenRouterAdvice(input) {
     }
   }
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       authorization: "Bearer " + process.env.OPENROUTER_API_KEY,
@@ -221,7 +266,7 @@ async function createOpenRouterAdvice(input) {
   }
   const outputText = data.choices?.[0]?.message?.content;
   if (!outputText) throw new Error("AI gaf geen tekst terug.");
-  return { ai: true, model, provider: "openrouter", ...parseModelJson(outputText) };
+  return { ai: true, model, provider: "openrouter", ...normalizeAdvice(parseModelJson(outputText)) };
 }
 
 async function handleDiagnose(req, res) {
@@ -282,6 +327,6 @@ const server = createServer((req, res) => {
   json(req, res, 405, { error: "Methode niet toegestaan." });
 });
 
-server.listen(port, () => {
-  console.log("Werkplaats Assistent draait op http://127.0.0.1:" + port);
+server.listen(port, host, () => {
+  console.log("Werkplaats Assistent draait op http://" + host + ":" + port);
 });

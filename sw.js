@@ -1,4 +1,4 @@
-const CACHE_NAME = "werkplaats-assistent-v4";
+const CACHE_NAME = "werkplaats-assistent-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
