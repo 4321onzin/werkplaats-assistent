@@ -7,23 +7,28 @@ Mobiel prototype voor monteurs. De app werkt als PWA: open de URL op een iPhone 
 - Kentekenlookup via RDW Open Data
 - Klachtomschrijving, kilometerstand en foutcode
 - Foto maken of uploaden vanaf mobiel
-- Eerste diagnose/checklist op basis van ingevulde gegevens
+- AI-advies via een server-side OpenAI-koppeling
+- Fallback-checklist als de AI-backend niet bereikbaar is
 - PWA-installatie met manifest en service worker
 
 ## Lokaal testen
 
 ```bash
-python3 -m http.server 4173
+npm start
 ```
 
 Open daarna:
 
 ```text
-http://localhost:4173/monteurs-assistent-pwa/
+http://localhost:4173/
 ```
 
-Voor installatie op een iPhone moet de app via HTTPS beschikbaar zijn, bijvoorbeeld via GitHub Pages of de VPS.
+Voor echte AI zet je een API-key in de serveromgeving:
 
-## Volgende stap
+OPENAI_API_KEY=... npm start
 
-De huidige diagnose is bewust regelgebaseerd. Voor echte AI-diagnose is een server-side koppeling nodig, zodat API-sleutels niet in de browser terechtkomen.
+Zonder API-key kun je de flow testen met mockadvies:
+
+WORKSHOP_AI_MOCK=1 npm start
+
+Voor installatie op een iPhone moet de app via HTTPS beschikbaar zijn, bijvoorbeeld via GitHub Pages plus aparte API-backend, of via de VPS.

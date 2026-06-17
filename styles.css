@@ -156,6 +156,11 @@ button {
   font-weight: 850;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .plate-row button,
 .primary-button {
   background: var(--accent);
@@ -298,6 +303,10 @@ dd {
 
 .advice-block li {
   margin: 7px 0;
+}
+
+.advice-block p {
+  margin: 0;
 }
 
 .warning {

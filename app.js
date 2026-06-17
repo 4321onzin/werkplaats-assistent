@@ -94,6 +94,47 @@ function renderPhotos(files) {
   }
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function renderList(items) {
+  return (items || []).map((item) => "<li>" + escapeHtml(item) + "</li>").join("");
+}
+
+function renderAdvice(advice) {
+  els.diagnoseOutput.innerHTML =
+    '<div class="advice-block">' +
+    "<h3>" + (advice.mock ? "AI-testadvies" : "AI-advies") + "</h3>" +
+    "<p>" + escapeHtml(advice.summary || "Geen samenvatting ontvangen.") + "</p>" +
+    "</div>" +
+    '<div class="advice-block">' +
+    "<h3>Waarschijnlijke oorzaken</h3>" +
+    "<ul>" + renderList(advice.likelyCauses) + "</ul>" +
+    "</div>" +
+    '<div class="advice-block">' +
+    "<h3>Controlevolgorde</h3>" +
+    "<ol>" + renderList(advice.checks) + "</ol>" +
+    "</div>" +
+    '<div class="advice-block">' +
+    "<h3>Onderdelen en gereedschap</h3>" +
+    "<ul>" + renderList(advice.partsAndTools) + "</ul>" +
+    "</div>" +
+    '<div class="advice-block">' +
+    "<h3>Uitleg voor klant</h3>" +
+    "<p>" + escapeHtml(advice.customerText || "Nog geen klanttekst.") + "</p>" +
+    "</div>" +
+    '<div class="advice-block warning">' +
+    "<h3>Let op</h3>" +
+    "<ul>" + renderList(advice.warnings?.length ? advice.warnings : ["Controleer altijd met metingen voordat je onderdelen vervangt."]) + "</ul>" +
+    "</div>";
+}
+
 function buildChecklist() {
   const vehicleText = state.vehicle
     ? `${state.vehicle.merk || ""} ${state.vehicle.handelsbenaming || ""}`.trim()
@@ -157,6 +198,67 @@ function buildChecklist() {
   `;
 }
 
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Foto kon niet worden gelezen."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function requestAiAdvice() {
+  const complaint = els.complaintInput.value.trim();
+  const fault = els.faultInput.value.trim().toUpperCase();
+  const mileage = els.mileageInput.value.trim();
+
+  els.diagnoseButton.disabled = true;
+  els.diagnoseButton.textContent = "AI denkt mee...";
+  els.diagnoseOutput.textContent = "AI-advies ophalen...";
+
+  try {
+    const photos = await Promise.all(
+      Array.from(els.photoInput.files || [])
+        .slice(0, 3)
+        .map(async (file) => ({
+          name: file.name,
+          type: file.type,
+          dataUrl: await fileToDataUrl(file),
+        }))
+    );
+
+    const response = await fetch("./api/diagnose", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        vehicle: state.vehicle,
+        mileage,
+        faultCode: fault,
+        complaint,
+        photos,
+      }),
+    });
+
+    const advice = await response.json().catch(() => ({}));
+    if (!response.ok || !advice.ai) {
+      throw new Error(advice.error || "AI-backend is niet bereikbaar.");
+    }
+
+    renderAdvice(advice);
+  } catch (error) {
+    buildChecklist();
+    els.diagnoseOutput.insertAdjacentHTML(
+      "afterbegin",
+      '<div class="advice-block warning"><h3>AI niet beschikbaar</h3><p>' +
+        escapeHtml(error.message) +
+        " De app toont hieronder de simpele fallback-checklist.</p></div>"
+    );
+  } finally {
+    els.diagnoseButton.disabled = false;
+    els.diagnoseButton.textContent = "Vraag AI-advies";
+  }
+}
+
 function resetCase() {
   state.vehicle = null;
   state.photos.forEach((item) => URL.revokeObjectURL(item.url));
@@ -198,7 +300,7 @@ els.photoInput.addEventListener("change", (event) => {
   renderPhotos(event.target.files);
 });
 
-els.diagnoseButton.addEventListener("click", buildChecklist);
+els.diagnoseButton.addEventListener("click", requestAiAdvice);
 els.clearButton.addEventListener("click", resetCase);
 
 if ("serviceWorker" in navigator) {
