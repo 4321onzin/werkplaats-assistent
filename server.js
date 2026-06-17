@@ -5,8 +5,12 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const model = process.env.OPENAI_MODEL || "gpt-5.5";
+const model = process.env.WORKSHOP_AI_MODEL || process.env.OPENAI_MODEL || process.env.OPENROUTER_MODEL || "openai/gpt-5.5";
 const accessCode = process.env.WORKSHOP_ACCESS_CODE || "";
+const allowedOrigins = (process.env.WORKSHOP_ALLOWED_ORIGINS || "https://4321onzin.github.io,http://localhost:4173,http://127.0.0.1:4173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const maxBodyBytes = 8 * 1024 * 1024;
 
 const mimeTypes = {
@@ -18,10 +22,22 @@ const mimeTypes = {
   ".svg": "image/svg+xml; charset=utf-8",
 };
 
-function json(res, status, payload) {
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  const allowedOrigin = allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  return {
+    "access-control-allow-origin": allowedOrigin,
+    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    vary: "origin",
+  };
+}
+
+function json(req, res, status, payload) {
   res.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    ...corsHeaders(req),
   });
   res.end(JSON.stringify(payload));
 }
@@ -102,8 +118,11 @@ function mockAdvice(input) {
 
 async function createAdvice(input) {
   if (process.env.WORKSHOP_AI_MOCK === "1") return mockAdvice(input);
+  if (process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
+    return createOpenRouterAdvice(input);
+  }
   if (!process.env.OPENAI_API_KEY) {
-    const error = new Error("OPENAI_API_KEY ontbreekt op de server.");
+    const error = new Error("OPENAI_API_KEY of OPENROUTER_API_KEY ontbreekt op de server.");
     error.status = 503;
     throw error;
   }
@@ -158,22 +177,69 @@ async function createAdvice(input) {
   return { ai: true, model, ...parseModelJson(outputText) };
 }
 
+async function createOpenRouterAdvice(input) {
+  const text = [
+    "Maak een praktisch werkplaatsadvies in het Nederlands.",
+    "Geef geen absolute zekerheid. Werk met waarschijnlijkheden, controlevolgorde en meetstappen.",
+    "Adviseer nooit blind onderdelen vervangen. Zeg expliciet welke meting of observatie nodig is.",
+    "Antwoord uitsluitend als compacte JSON met keys: summary, likelyCauses, checks, partsAndTools, customerText, warnings.",
+    "",
+    "Voertuiggegevens:",
+    vehicleSummary(input.vehicle),
+    "",
+    "Kilometerstand: " + (input.mileage || "onbekend"),
+    "Foutcode: " + (input.faultCode || "geen"),
+    "Klacht/opdracht: " + (input.complaint || "niet ingevuld"),
+  ].join("\n");
+
+  const content = [{ type: "text", text }];
+  for (const photo of input.photos) {
+    if (typeof photo?.dataUrl === "string" && photo.dataUrl.startsWith("data:image/")) {
+      content.push({ type: "image_url", image_url: { url: photo.dataUrl } });
+    }
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + process.env.OPENROUTER_API_KEY,
+      "content-type": "application/json",
+      "http-referer": "https://4321onzin.github.io/werkplaats-assistent/",
+      "x-title": "Werkplaats Assistent",
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content }],
+      response_format: { type: "json_object" },
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error?.message || "OpenRouter gaf geen bruikbaar antwoord.");
+    error.status = response.status;
+    throw error;
+  }
+  const outputText = data.choices?.[0]?.message?.content;
+  if (!outputText) throw new Error("AI gaf geen tekst terug.");
+  return { ai: true, model, provider: "openrouter", ...parseModelJson(outputText) };
+}
+
 async function handleDiagnose(req, res) {
   try {
     const payload = JSON.parse(await readBody(req));
     const input = cleanCase(payload);
     if (!/^\d{4}$/.test(accessCode)) {
-      json(res, 503, { ai: false, error: "WORKSHOP_ACCESS_CODE ontbreekt of is geen 4-cijferige code." });
+      json(req, res, 503, { ai: false, error: "WORKSHOP_ACCESS_CODE ontbreekt of is geen 4-cijferige code." });
       return;
     }
     if (input.accessCode !== accessCode) {
-      json(res, 401, { ai: false, error: "Toegangscode klopt niet." });
+      json(req, res, 401, { ai: false, error: "Toegangscode klopt niet." });
       return;
     }
     const advice = await createAdvice(input);
-    json(res, 200, advice);
+    json(req, res, 200, advice);
   } catch (error) {
-    json(res, error.status || 500, {
+    json(req, res, error.status || 500, {
       ai: false,
       error: error.message || "Diagnose mislukt.",
     });
@@ -200,6 +266,11 @@ async function serveStatic(req, res) {
 }
 
 const server = createServer((req, res) => {
+  if (req.method === "OPTIONS" && req.url === "/api/diagnose") {
+    res.writeHead(204, corsHeaders(req));
+    res.end();
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/diagnose") {
     handleDiagnose(req, res);
     return;
@@ -208,7 +279,7 @@ const server = createServer((req, res) => {
     serveStatic(req, res);
     return;
   }
-  json(res, 405, { error: "Methode niet toegestaan." });
+  json(req, res, 405, { error: "Methode niet toegestaan." });
 });
 
 server.listen(port, () => {

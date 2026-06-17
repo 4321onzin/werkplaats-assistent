@@ -28,6 +28,10 @@ Voor echte AI zet je een API-key in de serveromgeving:
 
 OPENAI_API_KEY=... WORKSHOP_ACCESS_CODE=1234 npm start
 
+De backend kan ook OpenRouter gebruiken als OPENROUTER_API_KEY aanwezig is:
+
+OPENROUTER_API_KEY=... WORKSHOP_ACCESS_CODE=1234 npm start
+
 Zonder API-key kun je de flow testen met mockadvies:
 
 WORKSHOP_AI_MOCK=1 WORKSHOP_ACCESS_CODE=1234 npm start

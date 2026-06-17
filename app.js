@@ -1,5 +1,8 @@
 const RDW_VEHICLE_ENDPOINT = "https://opendata.rdw.nl/resource/m9d7-ebf2.json";
 const RDW_FUEL_ENDPOINT = "https://opendata.rdw.nl/resource/8ys7-d773.json";
+const API_ENDPOINT = location.hostname.endsWith("github.io")
+  ? "https://webhook.ilxsolutions.com/werkplaats/api/diagnose"
+  : "./api/diagnose";
 
 const state = {
   vehicle: null,
@@ -235,7 +238,7 @@ async function requestAiAdvice() {
         }))
     );
 
-    const response = await fetch("./api/diagnose", {
+    const response = await fetch(API_ENDPOINT, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
