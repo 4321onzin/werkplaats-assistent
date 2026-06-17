@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Werkplaats Assistent">
+  <rect width="512" height="512" rx="96" fill="#101820"/>
+  <path d="M128 312h256v58H128z" fill="#f4f1eb"/>
+  <path d="M162 230h188l37 82H125z" fill="#0f766e"/>
+  <path d="M192 172h128l30 58H162z" fill="#f4f1eb"/>
+  <circle cx="187" cy="370" r="32" fill="#0f766e"/>
+  <circle cx="325" cy="370" r="32" fill="#0f766e"/>
+  <path d="M141 146l34-34 33 32-35 35 8 31-34 35-54-54 35-35z" fill="#d9dde2"/>
+</svg>

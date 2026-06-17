@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#101820" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Werkplaats" />
+    <title>Werkplaats Assistent</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Werkplaats Assistent</p>
+          <h1>Diagnosehulp voor de werkplaats</h1>
+        </div>
+        <span class="status-pill" id="installState">PWA</span>
+      </header>
+
+      <main>
+        <section class="panel vehicle-panel" aria-labelledby="vehicleTitle">
+          <div class="section-head">
+            <div>
+              <p class="step-label">Stap 1</p>
+              <h2 id="vehicleTitle">Voertuig</h2>
+            </div>
+            <button class="ghost-button" id="clearButton" type="button">Nieuw</button>
+          </div>
+
+          <form id="plateForm" class="plate-form">
+            <label for="plateInput">Kenteken</label>
+            <div class="plate-row">
+              <input
+                id="plateInput"
+                name="plate"
+                autocomplete="off"
+                inputmode="text"
+                placeholder="Bijv. AB123C"
+                maxlength="10"
+                required
+              />
+              <button type="submit">RDW</button>
+            </div>
+            <p class="hint">Nederlandse kentekens worden zonder streepjes opgezocht bij RDW Open Data.</p>
+          </form>
+
+          <div class="vehicle-card" id="vehicleCard" hidden>
+            <div>
+              <span class="muted">Voertuig</span>
+              <strong id="vehicleName">-</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Bouwjaar</dt>
+                <dd id="vehicleYear">-</dd>
+              </div>
+              <div>
+                <dt>Brandstof</dt>
+                <dd id="vehicleFuel">-</dd>
+              </div>
+              <div>
+                <dt>APK</dt>
+                <dd id="vehicleApk">-</dd>
+              </div>
+              <div>
+                <dt>Massa</dt>
+                <dd id="vehicleMass">-</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="caseTitle">
+          <div class="section-head">
+            <div>
+              <p class="step-label">Stap 2</p>
+              <h2 id="caseTitle">Klacht en bewijs</h2>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <label>
+              Kilometerstand
+              <input id="mileageInput" type="number" inputmode="numeric" placeholder="Bijv. 184000" />
+            </label>
+            <label>
+              Foutcode
+              <input id="faultInput" type="text" placeholder="Bijv. P0301" />
+            </label>
+          </div>
+
+          <label>
+            Klacht of opdracht
+            <textarea
+              id="complaintInput"
+              rows="5"
+              placeholder="Bijv. motor loopt onregelmatig, lampje brandt, klant hoort tik bij koude start..."
+            ></textarea>
+          </label>
+
+          <label class="photo-drop">
+            <input id="photoInput" type="file" accept="image/*" capture="environment" multiple />
+            <span>Foto maken of uploaden</span>
+            <small>Dashboard, lekkage, slijtage, onderdeel of scannerbeeld.</small>
+          </label>
+
+          <div id="photoPreview" class="photo-preview" aria-live="polite"></div>
+        </section>
+
+        <section class="panel output-panel" aria-labelledby="diagnoseTitle">
+          <div class="section-head">
+            <div>
+              <p class="step-label">Stap 3</p>
+              <h2 id="diagnoseTitle">Werkplaatsadvies</h2>
+            </div>
+          </div>
+
+          <button class="primary-button" id="diagnoseButton" type="button">Maak checklist</button>
+
+          <div id="diagnoseOutput" class="diagnose-output" aria-live="polite">
+            Vul kenteken, klacht en eventueel foto’s in. De app maakt daarna een praktische controlevolgorde.
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
