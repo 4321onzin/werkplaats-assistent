@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
 const model = process.env.OPENAI_MODEL || "gpt-5.5";
+const accessCode = process.env.WORKSHOP_ACCESS_CODE || "";
 const maxBodyBytes = 8 * 1024 * 1024;
 
 const mimeTypes = {
@@ -45,6 +46,7 @@ function readBody(req) {
 
 function cleanCase(payload) {
   return {
+    accessCode: String(payload.accessCode || "").trim(),
     vehicle: payload.vehicle || null,
     mileage: String(payload.mileage || "").slice(0, 20),
     faultCode: String(payload.faultCode || "").slice(0, 40),
@@ -160,6 +162,14 @@ async function handleDiagnose(req, res) {
   try {
     const payload = JSON.parse(await readBody(req));
     const input = cleanCase(payload);
+    if (!/^\d{4}$/.test(accessCode)) {
+      json(res, 503, { ai: false, error: "WORKSHOP_ACCESS_CODE ontbreekt of is geen 4-cijferige code." });
+      return;
+    }
+    if (input.accessCode !== accessCode) {
+      json(res, 401, { ai: false, error: "Toegangscode klopt niet." });
+      return;
+    }
     const advice = await createAdvice(input);
     json(res, 200, advice);
   } catch (error) {

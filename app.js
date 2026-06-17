@@ -20,6 +20,7 @@ const els = {
   complaintInput: document.querySelector("#complaintInput"),
   photoInput: document.querySelector("#photoInput"),
   photoPreview: document.querySelector("#photoPreview"),
+  accessCodeInput: document.querySelector("#accessCodeInput"),
   diagnoseButton: document.querySelector("#diagnoseButton"),
   diagnoseOutput: document.querySelector("#diagnoseOutput"),
   clearButton: document.querySelector("#clearButton"),
@@ -211,6 +212,13 @@ async function requestAiAdvice() {
   const complaint = els.complaintInput.value.trim();
   const fault = els.faultInput.value.trim().toUpperCase();
   const mileage = els.mileageInput.value.trim();
+  const accessCode = els.accessCodeInput.value.trim();
+
+  if (!/^\d{4}$/.test(accessCode)) {
+    els.diagnoseOutput.textContent = "Voer eerst de 4-cijferige toegangscode in.";
+    els.accessCodeInput.focus();
+    return;
+  }
 
   els.diagnoseButton.disabled = true;
   els.diagnoseButton.textContent = "AI denkt mee...";
@@ -235,6 +243,7 @@ async function requestAiAdvice() {
         mileage,
         faultCode: fault,
         complaint,
+        accessCode,
         photos,
       }),
     });
@@ -267,6 +276,7 @@ function resetCase() {
   els.mileageInput.value = "";
   els.faultInput.value = "";
   els.complaintInput.value = "";
+  els.accessCodeInput.value = "";
   els.photoInput.value = "";
   els.photoPreview.innerHTML = "";
   els.vehicleCard.hidden = true;
@@ -298,6 +308,10 @@ els.plateForm.addEventListener("submit", async (event) => {
 
 els.photoInput.addEventListener("change", (event) => {
   renderPhotos(event.target.files);
+});
+
+els.accessCodeInput.addEventListener("input", () => {
+  els.accessCodeInput.value = els.accessCodeInput.value.replace(/\D/g, "").slice(0, 4);
 });
 
 els.diagnoseButton.addEventListener("click", requestAiAdvice);

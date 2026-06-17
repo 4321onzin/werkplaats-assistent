@@ -120,6 +120,19 @@
             </div>
           </div>
 
+          <label class="access-code-label">
+            Toegangscode
+            <input
+              id="accessCodeInput"
+              type="password"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="4"
+              pattern="[0-9]{4}"
+              placeholder="4 cijfers"
+            />
+          </label>
+
           <button class="primary-button" id="diagnoseButton" type="button">Vraag AI-advies</button>
 
           <div id="diagnoseOutput" class="diagnose-output" aria-live="polite">
