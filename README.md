@@ -8,6 +8,7 @@ Mobiel prototype voor monteurs. De app werkt als PWA: open de URL op een iPhone 
 - Klachtomschrijving, kilometerstand en foutcode
 - Foto maken of uploaden vanaf mobiel
 - AI-advies via een server-side OpenAI-koppeling
+- Diagnosechat om door te vragen binnen dezelfde voertuigcase
 - 4-cijferige toegangscode voor AI-verzoeken
 - Fallback-checklist als de AI-backend niet bereikbaar is
 - PWA-installatie met manifest en service worker

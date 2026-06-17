@@ -116,7 +116,7 @@
           <div class="section-head">
             <div>
               <p class="step-label">Stap 3</p>
-              <h2 id="diagnoseTitle">Werkplaatsadvies</h2>
+              <h2 id="diagnoseTitle">Diagnosechat</h2>
             </div>
           </div>
 
@@ -133,11 +133,25 @@
             />
           </label>
 
-          <button class="primary-button" id="diagnoseButton" type="button">Vraag AI-advies</button>
+          <button class="primary-button" id="diagnoseButton" type="button">Start diagnosechat</button>
 
           <div id="diagnoseOutput" class="diagnose-output" aria-live="polite">
-            Vul kenteken, klacht en eventueel foto’s in. De app maakt daarna een praktische controlevolgorde.
+            Vul kenteken, klacht en eventueel foto’s in. Start daarna de chat en vraag door over controles, metingen en uitleg voor de klant.
           </div>
+
+          <div id="chatLog" class="chat-log" aria-live="polite"></div>
+
+          <form id="chatForm" class="chat-form">
+            <label for="chatInput">Doorvragen</label>
+            <div class="chat-row">
+              <textarea
+                id="chatInput"
+                rows="3"
+                placeholder="Bijv. wat controleer ik als de bougie goed is?"
+              ></textarea>
+              <button type="submit">Stuur</button>
+            </div>
+          </form>
         </section>
       </main>
     </div>

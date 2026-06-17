@@ -14,6 +14,9 @@ const allowedOrigins = (process.env.WORKSHOP_ALLOWED_ORIGINS || "https://4321onz
   .filter(Boolean);
 const maxBodyBytes = 8 * 1024 * 1024;
 const aiTimeoutMs = Number(process.env.WORKSHOP_AI_TIMEOUT_MS || 45000);
+const rateWindowMs = Number(process.env.WORKSHOP_RATE_WINDOW_MS || 60_000);
+const rateMaxRequests = Number(process.env.WORKSHOP_RATE_MAX || 20);
+const requestCounts = new Map();
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -62,6 +65,32 @@ function readBody(req) {
   });
 }
 
+async function readJson(req) {
+  try {
+    return JSON.parse(await readBody(req));
+  } catch {
+    const error = new Error("Ongeldige aanvraag.");
+    error.status = 400;
+    throw error;
+  }
+}
+
+function clientKey(req) {
+  return String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+}
+
+function isRateLimited(req) {
+  const key = clientKey(req);
+  const now = Date.now();
+  const entry = requestCounts.get(key);
+  if (!entry || now - entry.startedAt > rateWindowMs) {
+    requestCounts.set(key, { count: 1, startedAt: now });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > rateMaxRequests;
+}
+
 function cleanCase(payload) {
   return {
     accessCode: String(payload.accessCode || "").trim(),
@@ -71,6 +100,22 @@ function cleanCase(payload) {
     complaint: String(payload.complaint || "").slice(0, 1800),
     photos: Array.isArray(payload.photos) ? payload.photos.slice(0, 3) : [],
   };
+}
+
+function verifyAccess(req, res, input) {
+  if (isRateLimited(req)) {
+    json(req, res, 429, { ai: false, error: "Te veel verzoeken. Probeer het straks opnieuw." });
+    return false;
+  }
+  if (!/^\d{4}$/.test(accessCode)) {
+    json(req, res, 503, { ai: false, error: "WORKSHOP_ACCESS_CODE ontbreekt of is geen 4-cijferige code." });
+    return false;
+  }
+  if (input.accessCode !== accessCode) {
+    json(req, res, 401, { ai: false, error: "Toegangscode klopt niet." });
+    return false;
+  }
+  return true;
 }
 
 function vehicleSummary(vehicle) {
@@ -119,6 +164,12 @@ function normalizeAdvice(advice) {
     customerText: String(advice.customerText || ""),
     warnings: normalizeList(advice.warnings),
   };
+}
+
+function normalizeChatMessage(message) {
+  const role = message?.role === "assistant" ? "assistant" : "user";
+  const content = String(message?.content || "").slice(0, 1800);
+  return content ? { role, content } : null;
 }
 
 async function fetchWithTimeout(url, options) {
@@ -269,24 +320,127 @@ async function createOpenRouterAdvice(input) {
   return { ai: true, model, provider: "openrouter", ...normalizeAdvice(parseModelJson(outputText)) };
 }
 
+function caseContext(input) {
+  return [
+    "Je bent een praktische AI-werkplaatsassistent voor automonteurs.",
+    "Antwoord in het Nederlands, kort maar bruikbaar.",
+    "Werk met controles, meetstappen en waarschijnlijkheden. Doe niet alsof je zeker weet wat defect is.",
+    "Adviseer niet blind onderdelen vervangen; koppel vervanging aan meting of observatie.",
+    "",
+    "Voertuiggegevens:",
+    vehicleSummary(input.vehicle),
+    "",
+    "Kilometerstand: " + (input.mileage || "onbekend"),
+    "Foutcode: " + (input.faultCode || "geen"),
+    "Klacht/opdracht: " + (input.complaint || "niet ingevuld"),
+    "Aantal foto's in dossier: " + input.photos.length,
+  ].join("\n");
+}
+
+function mockChat(input) {
+  const last = input.messages.at(-1)?.content || "Maak een eerste advies.";
+  return {
+    ai: true,
+    mock: true,
+    reply:
+      "Ik zou dit stap voor stap aanpakken. Je vraag was: " +
+      last +
+      " Begin met foutcodes en freeze-frame data, controleer daarna visueel stekkers/slangen/vloeistoffen en meet pas daarna gericht aan het verdachte systeem.",
+  };
+}
+
+async function createChatReply(input) {
+  if (process.env.WORKSHOP_AI_MOCK === "1") return mockChat(input);
+  if (!process.env.OPENROUTER_API_KEY && !process.env.OPENAI_API_KEY) {
+    const error = new Error("OPENAI_API_KEY of OPENROUTER_API_KEY ontbreekt op de server.");
+    error.status = 503;
+    throw error;
+  }
+
+  const messages = [
+    { role: "system", content: caseContext(input) },
+    ...input.messages.slice(-12).map(normalizeChatMessage).filter(Boolean),
+  ];
+
+  if (process.env.OPENAI_API_KEY && !process.env.OPENROUTER_API_KEY) {
+    const response = await fetchWithTimeout("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + process.env.OPENAI_API_KEY,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        input: messages,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.error?.message || "OpenAI gaf geen bruikbaar antwoord.");
+      error.status = response.status;
+      throw error;
+    }
+    const reply =
+      data.output_text ||
+      data.output
+        ?.flatMap((item) => item.content || [])
+        .filter((item) => item.type === "output_text")
+        .map((item) => item.text)
+        .join("\n");
+    if (!reply) throw new Error("AI gaf geen tekst terug.");
+    return { ai: true, model, reply };
+  }
+
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + process.env.OPENROUTER_API_KEY,
+      "content-type": "application/json",
+      "http-referer": "https://4321onzin.github.io/werkplaats-assistent/",
+      "x-title": "Werkplaats Assistent",
+    },
+    body: JSON.stringify({ model, messages }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error?.message || "OpenRouter gaf geen bruikbaar antwoord.");
+    error.status = response.status;
+    throw error;
+  }
+  const reply = data.choices?.[0]?.message?.content;
+  if (!reply) throw new Error("AI gaf geen tekst terug.");
+  return { ai: true, model, provider: "openrouter", reply };
+}
+
 async function handleDiagnose(req, res) {
   try {
-    const payload = JSON.parse(await readBody(req));
+    const payload = await readJson(req);
     const input = cleanCase(payload);
-    if (!/^\d{4}$/.test(accessCode)) {
-      json(req, res, 503, { ai: false, error: "WORKSHOP_ACCESS_CODE ontbreekt of is geen 4-cijferige code." });
-      return;
-    }
-    if (input.accessCode !== accessCode) {
-      json(req, res, 401, { ai: false, error: "Toegangscode klopt niet." });
-      return;
-    }
+    if (!verifyAccess(req, res, input)) return;
     const advice = await createAdvice(input);
     json(req, res, 200, advice);
   } catch (error) {
     json(req, res, error.status || 500, {
       ai: false,
       error: error.message || "Diagnose mislukt.",
+    });
+  }
+}
+
+async function handleChat(req, res) {
+  try {
+    const payload = await readJson(req);
+    const input = {
+      ...cleanCase(payload),
+      messages: Array.isArray(payload.messages) ? payload.messages.slice(-12) : [],
+    };
+    if (!verifyAccess(req, res, input)) return;
+    const reply = await createChatReply(input);
+    json(req, res, 200, reply);
+  } catch (error) {
+    json(req, res, error.status || 500, {
+      ai: false,
+      error: error.message || "Chat mislukt.",
     });
   }
 }
@@ -311,13 +465,21 @@ async function serveStatic(req, res) {
 }
 
 const server = createServer((req, res) => {
-  if (req.method === "OPTIONS" && req.url === "/api/diagnose") {
+  if (req.method === "OPTIONS" && (req.url === "/api/diagnose" || req.url === "/api/chat")) {
     res.writeHead(204, corsHeaders(req));
     res.end();
     return;
   }
   if (req.method === "POST" && req.url === "/api/diagnose") {
     handleDiagnose(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/chat") {
+    handleChat(req, res);
+    return;
+  }
+  if (req.url?.startsWith("/api/")) {
+    json(req, res, 405, { error: "Methode niet toegestaan." });
     return;
   }
   if (req.method === "GET" || req.method === "HEAD") {

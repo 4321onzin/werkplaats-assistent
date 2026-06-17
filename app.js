@@ -3,10 +3,14 @@ const RDW_FUEL_ENDPOINT = "https://opendata.rdw.nl/resource/8ys7-d773.json";
 const API_ENDPOINT = location.hostname.endsWith("github.io")
   ? "https://webhook.ilxsolutions.com/werkplaats/api/diagnose"
   : "./api/diagnose";
+const CHAT_ENDPOINT = location.hostname.endsWith("github.io")
+  ? "https://webhook.ilxsolutions.com/werkplaats/api/chat"
+  : "./api/chat";
 
 const state = {
   vehicle: null,
   photos: [],
+  messages: [],
 };
 
 const els = {
@@ -26,6 +30,9 @@ const els = {
   accessCodeInput: document.querySelector("#accessCodeInput"),
   diagnoseButton: document.querySelector("#diagnoseButton"),
   diagnoseOutput: document.querySelector("#diagnoseOutput"),
+  chatLog: document.querySelector("#chatLog"),
+  chatForm: document.querySelector("#chatForm"),
+  chatInput: document.querySelector("#chatInput"),
   clearButton: document.querySelector("#clearButton"),
   installState: document.querySelector("#installState"),
 };
@@ -148,6 +155,35 @@ function renderAdvice(advice) {
     "</div>";
 }
 
+function renderChat() {
+  els.chatLog.innerHTML = "";
+  for (const message of state.messages) {
+    const item = document.createElement("div");
+    item.className = "chat-message " + message.role;
+    item.textContent = message.content;
+    els.chatLog.append(item);
+  }
+  els.diagnoseOutput.hidden = state.messages.length > 0;
+}
+
+function validateAccessCode() {
+  const accessCode = els.accessCodeInput.value.trim();
+  if (!/^\d{4}$/.test(accessCode)) {
+    els.diagnoseOutput.hidden = false;
+    els.diagnoseOutput.textContent = "Voer eerst de 4-cijferige toegangscode in.";
+    els.accessCodeInput.focus();
+    return null;
+  }
+  return accessCode;
+}
+
+function setChatBusy(isBusy) {
+  els.diagnoseButton.disabled = isBusy;
+  els.chatForm.querySelector("button").disabled = isBusy;
+  els.chatInput.disabled = isBusy;
+  els.diagnoseButton.textContent = isBusy ? "AI denkt mee..." : "Start diagnosechat";
+}
+
 function buildChecklist() {
   const vehicleText = state.vehicle
     ? `${state.vehicle.merk || ""} ${state.vehicle.handelsbenaming || ""}`.trim()
@@ -220,6 +256,78 @@ function fileToDataUrl(file) {
   });
 }
 
+async function collectCasePayload() {
+  const photos = await Promise.all(
+    Array.from(els.photoInput.files || [])
+      .slice(0, 3)
+      .map(async (file) => ({
+        name: file.name,
+        type: file.type,
+        dataUrl: await fileToDataUrl(file),
+      }))
+  );
+  return {
+    vehicle: state.vehicle,
+    mileage: els.mileageInput.value.trim(),
+    faultCode: els.faultInput.value.trim().toUpperCase(),
+    complaint: els.complaintInput.value.trim(),
+    photos,
+  };
+}
+
+function firstQuestion() {
+  const complaint = els.complaintInput.value.trim();
+  const fault = els.faultInput.value.trim().toUpperCase();
+  const vehicle = state.vehicle
+    ? String((state.vehicle.merk || "") + " " + (state.vehicle.handelsbenaming || "")).trim()
+    : "dit voertuig";
+  const pieces = ["Start een diagnosegesprek voor " + vehicle + "."];
+  if (fault) pieces.push("Foutcode: " + fault + ".");
+  if (complaint) pieces.push("Klacht: " + complaint);
+  pieces.push("Geef een korte eerste controlevolgorde en vraag daarna wat je nog nodig hebt.");
+  return pieces.join(" ");
+}
+
+async function sendChatMessage(content) {
+  const accessCode = validateAccessCode();
+  if (!accessCode) return;
+
+  state.messages.push({ role: "user", content });
+  renderChat();
+  setChatBusy(true);
+
+  try {
+    const casePayload = await collectCasePayload();
+    const response = await fetch(CHAT_ENDPOINT, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...casePayload,
+        accessCode,
+        messages: state.messages.slice(-12),
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.ai) {
+      throw new Error(result.error || "AI-chat is niet bereikbaar.");
+    }
+    state.messages.push({ role: "assistant", content: result.reply });
+  } catch (error) {
+    state.messages.push({ role: "assistant", content: "AI-chat niet beschikbaar: " + error.message });
+  } finally {
+    setChatBusy(false);
+    renderChat();
+  }
+}
+
+async function startChat() {
+  if (state.messages.length) {
+    await sendChatMessage("Geef een vervolgstap op basis van dit dossier.");
+    return;
+  }
+  await sendChatMessage(firstQuestion());
+}
+
 async function requestAiAdvice() {
   const complaint = els.complaintInput.value.trim();
   const fault = els.faultInput.value.trim().toUpperCase();
@@ -284,16 +392,19 @@ function resetCase() {
   state.vehicle = null;
   state.photos.forEach((item) => URL.revokeObjectURL(item.url));
   state.photos = [];
+  state.messages = [];
   els.plateInput.value = "";
   els.mileageInput.value = "";
   els.faultInput.value = "";
   els.complaintInput.value = "";
   els.accessCodeInput.value = "";
   els.photoInput.value = "";
+  els.chatInput.value = "";
   els.photoPreview.innerHTML = "";
+  renderChat();
   els.vehicleCard.hidden = true;
   els.diagnoseOutput.textContent =
-    "Vul kenteken, klacht en eventueel foto’s in. De app maakt daarna een praktische controlevolgorde.";
+    "Vul kenteken, klacht en eventueel foto’s in. Start daarna de chat en vraag door over controles, metingen en uitleg voor de klant.";
 }
 
 els.plateInput.addEventListener("input", () => {
@@ -310,7 +421,7 @@ els.plateForm.addEventListener("submit", async (event) => {
   try {
     state.vehicle = await lookupPlate(plate);
     renderVehicle(state.vehicle);
-    els.diagnoseOutput.textContent = "Voertuig gevonden. Vul de klacht aan en maak een checklist.";
+    els.diagnoseOutput.textContent = "Voertuig gevonden. Vul de klacht aan en start de diagnosechat.";
   } catch (error) {
     state.vehicle = null;
     els.vehicleCard.hidden = true;
@@ -326,8 +437,17 @@ els.accessCodeInput.addEventListener("input", () => {
   els.accessCodeInput.value = els.accessCodeInput.value.replace(/\D/g, "").slice(0, 4);
 });
 
-els.diagnoseButton.addEventListener("click", requestAiAdvice);
+els.chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const content = els.chatInput.value.trim();
+  if (!content) return;
+  els.chatInput.value = "";
+  await sendChatMessage(content);
+});
+
+els.diagnoseButton.addEventListener("click", startChat);
 els.clearButton.addEventListener("click", resetCase);
+renderChat();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
